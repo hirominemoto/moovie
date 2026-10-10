@@ -246,9 +246,12 @@ class Renderer:
         self.title1 = make_chars(T.TITLE_LINE1, font(0.070 * H), 0.012 * H, k)
         self.title2 = make_chars(T.TITLE_LINE2, font(0.047 * H), 0.006 * H, k)
         self.ending = make_chars(T.ENDING_LINE, font(0.046 * H), 0.008 * H, k)
-        self.word = make_chars(T.ENDING_WORD, font(0.25 * H), 0.06 * H, k, soft=1.2, glow=16)
+        self.word = make_chars(T.ENDING_WORD, font(0.25 * H), 0.06 * H, k, soft=6, glow=16)
         self.title_drift = [(rng.uniform(-10, 10) * k, -rng.uniform(6, 20) * k) for _ in range(40)]
-        self.word_phase = [rng.uniform(0, TAU, 5) for _ in T.ENDING_WORD]
+        # DREAM の一文字ずつに、ばらばらの揺れ方（周期と位相）を持たせる
+        self.word_motion = [dict(ph=rng.uniform(0, TAU, 6), py=rng.uniform(2.3, 3.2), px=rng.uniform(2.8, 4.0),
+                                 pr=rng.uniform(2.5, 3.6), ps=rng.uniform(1.9, 2.8))
+                            for _ in T.ENDING_WORD]
 
     # ---- パズルの動き ----------------------------------------------------
 
@@ -357,14 +360,15 @@ class Renderer:
 
     def draw_chars(self, f, chars, cx, cy, env, col=hexrgb("#f4effe"), glow_col=hexrgb("#a99cff")):
         for i, c in enumerate(chars):
-            sharp, soft, glow, ox, oy, rot = env(i)
+            sharp, soft, glow, ox, oy, rot, *rest = env(i)
+            sc = rest[0] if rest else 1.0
             if max(sharp, soft, glow) < 0.003:
                 continue
             x, y = cx + c["dx"] + ox, cy + oy
             for img, a, mode in ((c["glow"], glow * c["gpeak"], "add"), (c["soft"], soft, "over"), (c["sharp"], sharp, "over")):
                 if a < 0.003:
                     continue
-                res = transform(img, self.W, self.H, x, y, rot)
+                res = transform(img, self.W, self.H, x, y, rot, sc)
                 if res is None:
                     continue
                 m, x0, y0 = res
@@ -549,21 +553,33 @@ class Renderer:
         self.draw_chars(f, self.ending, self.Cx, 0.645 * self.H, env)
 
     def draw_word(self, f, t):
-        """淡く透ける DREAM が、ふわふわと漂う。"""
-        a_in = _ss(T.DREAM_IN, T.DREAM_IN + 1.4, t)
-        A = a_in * (1 - _ss(T.DREAM_OUT, T.DURATION - 0.02, t))
-        if A <= 0:
+        """淡く透ける DREAM。一文字ずつふわっと浮き上がり、それぞれ別々に漂う。"""
+        if t < T.DREAM_IN:
             return
         k = self.k
         prog = (t - T.DREAM_IN) / (T.DURATION - T.DREAM_IN)
-        spread = 1 + 0.015 * math.sin(TAU * t / 4.0)
 
         def env(i):
-            ph = self.word_phase[i]
-            dy = 12 * k * math.sin(TAU * t / 3.6 + ph[0]) + 4 * k * math.sin(TAU * t / 2.1 + ph[1]) + 18 * k * (1 - a_in)
-            dx = 5 * k * math.sin(TAU * t / 4.3 + ph[2]) + (14 * prog - 7) * k + self.word[i]["dx"] * (spread - 1)
-            sh = A * (0.85 + 0.15 * math.sin(TAU * t / 1.7 + ph[4]))
-            return 0.17 * sh, 0.0, 0.22 * sh, dx, dy, 0.02 * math.sin(TAU * t / 5 + ph[3])
+            m = self.word_motion[i]
+            ph = m["ph"]
+            start = T.DREAM_IN + 0.16 * i
+            e = _eo((t - start) / 1.7)                 # 下からふわっと浮き上がる
+            a_in = _ss(0, 1.1, t - start)
+            q = 1 - _ss(0, 0.55, t - (T.DREAM_OUT + 0.08 * i))   # 同じ順番で昇りながら消える
+            if a_in * q <= 0:
+                return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            # 文字ごとに周期の違う揺れを重ねる
+            fy = 17 * k * math.sin(TAU * t / m["py"] + ph[0]) + 6 * k * math.sin(TAU * t / (m["py"] * 0.53) + ph[1])
+            fx = 10 * k * math.sin(TAU * t / m["px"] + ph[2])
+            rot = 0.06 * math.sin(TAU * t / m["pr"] + ph[3])
+            sc = 1 + 0.03 * math.sin(TAU * t / m["ps"] + ph[4])
+            dy = fy + 75 * k * (1 - e) - 22 * k * prog - 40 * k * (1 - q) ** 1.3
+            dx = fx + (14 * prog - 7) * k
+            sh = 0.85 + 0.15 * math.sin(TAU * t / 1.7 + ph[5])
+            sharp = 0.19 * sh * a_in ** 1.5 * q ** 2
+            soft = 0.22 * a_in * (1 - e) * q + 0.25 * q * (1 - q)
+            glow = 0.24 * sh * a_in * q ** 0.6 + 0.2 * q * (1 - q)
+            return sharp, soft, glow, dx, dy, rot, sc
 
         self.draw_chars(f, self.word, self.Cx, 0.45 * self.H, env,
                         col=hexrgb("#efeaff"), glow_col=hexrgb("#b9a8ff"))
