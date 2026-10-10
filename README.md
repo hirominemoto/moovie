@@ -6,6 +6,14 @@
 
 完成した動画: [`output/dream.mp4`](output/dream.mp4)（1920×1080 / 30fps / 15秒 / AAC音声つき）
 
+## サイト
+
+同じテーマで作ったもう1本の動画（[`dream_15s_v6.mp4`](dream_15s_v6.mp4)）と並べて見られるページが [`index.html`](index.html)。
+GitHub Pages で公開すると https://hirominemoto.github.io/moovie/ で見られる。
+
+公開の手順（最初の1回だけ）: リポジトリの **Settings → Pages** で、
+Source を「Deploy from a branch」、Branch を `claude/modest-heisenberg-k96lp2` の `/ (root)` にして Save。
+
 ## 構成
 
 | 時間 | 映像 | 音 |

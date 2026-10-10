@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>夢の15秒｜TWO DREAMS</title>
+  <meta name="description" content="記憶の断片がパズルのように組み上がり、朝になると消えてしまう。夢をテーマに2つのAIがつくった15秒のショートムービー。">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="夢の15秒｜TWO DREAMS">
+  <meta property="og:description" content="記憶の断片がパズルのように組み上がり、朝になると消えてしまう。夢をテーマに2つのAIがつくった15秒のショートムービー。">
+  <meta property="og:url" content="https://hirominemoto.github.io/moovie/">
+  <meta property="og:image" content="https://hirominemoto.github.io/moovie/assets/og.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    :root {
+      --bg: #0b0d26;
+      --bg-deep: #070818;
+      --ink: #f1edff;
+      --muted: #bdb6dc;
+      --line: rgba(220, 210, 255, 0.16);
+      --card: rgba(255, 255, 255, 0.035);
+      --lavender: #c9b8ff;
+      --peach: #ffc9b0;
+      --font: "Meiryo", "メイリオ", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; background: #160f33; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: var(--font);
+      line-height: 1.8;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(122, 92, 255, 0.28), transparent 70%),
+        radial-gradient(ellipse 70% 40% at 50% 110%, rgba(255, 160, 150, 0.16), transparent 70%),
+        linear-gradient(var(--bg-deep), var(--bg) 40%, #160f33);
+      overflow-x: hidden;
+    }
+    /* 夜空の星 */
+    body::before, body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-repeat: repeat;
+      z-index: 0;
+    }
+    body::before {
+      background-image:
+        radial-gradient(1px 1px at 20px 30px, #fff, transparent),
+        radial-gradient(1px 1px at 140px 80px, rgba(255, 255, 255, 0.8), transparent),
+        radial-gradient(1.5px 1.5px at 90px 160px, #fff, transparent),
+        radial-gradient(1px 1px at 230px 120px, rgba(255, 240, 250, 0.7), transparent),
+        radial-gradient(1px 1px at 300px 220px, #fff, transparent);
+      background-size: 320px 260px;
+      opacity: 0.55;
+    }
+    body::after {
+      background-image:
+        radial-gradient(1.5px 1.5px at 60px 200px, #fff, transparent),
+        radial-gradient(1px 1px at 380px 60px, #fff, transparent),
+        radial-gradient(2px 2px at 250px 330px, rgba(220, 210, 255, 0.9), transparent);
+      background-size: 470px 410px;
+      animation: twinkle 5s ease-in-out infinite alternate;
+    }
+    @keyframes twinkle { from { opacity: 0.25; } to { opacity: 0.8; } }
+    @media (prefers-reduced-motion: reduce) { body::after { animation: none; opacity: 0.5; } }
+
+    .wrap { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+
+    header { text-align: center; padding: 72px 0 40px; }
+    .eyebrow {
+      margin: 0 0 20px;
+      font-size: 12px;
+      letter-spacing: 0.32em;
+      color: var(--lavender);
+    }
+    h1 { margin: 0; font-weight: 400; line-height: 1.5; }
+    h1 .big {
+      display: block;
+      font-size: clamp(36px, 7vw, 60px);
+      letter-spacing: 0.12em;
+      text-shadow: 0 0 24px rgba(169, 156, 255, 0.55);
+    }
+    h1 .sub {
+      display: block;
+      margin-top: 6px;
+      font-size: clamp(16px, 2.6vw, 22px);
+      letter-spacing: 0.18em;
+      color: var(--muted);
+    }
+    .lead {
+      max-width: 36em;
+      margin: 28px auto 0;
+      font-size: 15px;
+      color: var(--muted);
+    }
+
+    .works {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr));
+      gap: 28px;
+    }
+    .work {
+      margin: 0;
+      padding: 12px 12px 22px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--card);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    }
+    .work video {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 10px;
+      background: #000;
+    }
+    .info { padding: 18px 10px 0; }
+    .tag {
+      display: inline-block;
+      margin: 0;
+      padding: 2px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      color: var(--bg);
+      background: var(--lavender);
+    }
+    .work.b .tag { background: var(--peach); }
+    h2 {
+      margin: 12px 0 8px;
+      font-size: 22px;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+    }
+    .info p.desc { margin: 0; font-size: 14.5px; color: var(--muted); }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .meta li {
+      padding: 2px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .note { margin: 28px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
+    footer {
+      margin-top: 64px;
+      padding: 28px 0 48px;
+      border-top: 1px solid var(--line);
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    a { color: var(--lavender); text-underline-offset: 3px; }
+    a:hover { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <p class="eyebrow">TWO DREAMS · 15 SECONDS</p>
+      <h1>
+        <span class="big">夢・・・</span>
+        <span class="sub">それはあなたの記憶の断片</span>
+      </h1>
+      <p class="lead">記憶の断片がパズルみたいにばらばらになって、思いがけない形に組み上がり、朝になるとぱっと消えてしまう。そんな夢をテーマに、2つのAIがつくった15秒のショートムービー。</p>
+    </header>
+
+    <main class="works">
+      <article class="work a">
+        <video controls playsinline preload="metadata"
+               poster="assets/poster-whale.jpg" src="output/dream.mp4"
+               aria-label="Dream A 空を泳ぐクジラ（15秒の動画）"></video>
+        <div class="info">
+          <p class="tag">DREAM A</p>
+          <h2>空を泳ぐクジラ</h2>
+          <p class="desc">記憶の断片がジグソーパズルのピースになって散らばり、背中に小さな家をのせて空を泳ぐクジラの景色に組み上がる。朝の光に絵がほどけると、DREAM の文字がひとつずつ浮かんで消えていく。</p>
+          <ul class="meta">
+            <li>1920×1080</li>
+            <li>15秒</li>
+            <li>映像も音楽もコードで生成</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="work b">
+        <video controls playsinline preload="metadata"
+               poster="assets/poster-dreamlog.jpg" src="dream_15s_v6.mp4"
+               aria-label="Dream B DREAM LOG（15秒の動画）"></video>
+        <div class="info">
+          <p class="tag">DREAM B</p>
+          <h2>DREAM LOG</h2>
+          <p class="desc">夜空を漂う四角い断片が、月と家のある夜景に組み上がったかと思うと、時計やドア、魚、汽車が混ざり込んだ不思議なコラージュへ。夜明けとともに崩れて、パステルの朝に DREAM が残る。</p>
+          <ul class="meta">
+            <li>1280×720</li>
+            <li>15秒</li>
+          </ul>
+        </div>
+      </article>
+    </main>
+
+    <p class="note">再生すると音楽が流れます。片方を再生すると、もう片方は止まります。</p>
+
+    <footer>
+      Dream A のソースコードは <a href="https://github.com/hirominemoto/moovie">GitHub</a> で公開しています。
+    </footer>
+  </div>
+
+  <script>
+    // 2本の音楽が重ならないよう、片方を再生したらもう片方を止める
+    const videos = document.querySelectorAll("video");
+    videos.forEach((v) => {
+      v.addEventListener("play", () => {
+        videos.forEach((other) => { if (other !== v) other.pause(); });
+      });
+    });
+  </script>
+</body>
+</html>
