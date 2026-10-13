@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "もーバー（claude.ai トークンバー）",
+  "version": "0.1.0",
+  "description": "claude.ai のチャット画面の上に、このチャットのトークン量（推定）と使用上限を、うしと月のバーで出します。",
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["bar.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}
