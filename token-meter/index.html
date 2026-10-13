@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>もーメーター</title>
+  <meta name="description" content="AIチャットの画面に置く、うしと月のトークンメーター。いまのチャットと合計のトークン使用量がひと目でわかる。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Zen+Maru+Gothic:wght@500;700&display=swap">
+  <style>
+    /* Layout: ひと画面のメッセンジャー。上にメーター、真ん中に会話、下に入力欄とデモ操作 */
+    :root {
+      --bg: #edf2ea;
+      --surface: #ffffff;
+      --ink: #222538;
+      --muted: #5f6680;
+      --line: #d6dfd2;
+      --track: #e2e9de;
+      --grass: #2f8a4e;
+      --on-grass: #ffffff;
+      --user-bubble: #d9efdd;
+      --font-body: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Meiryo", sans-serif;
+      --font-num: "Fredoka", "Zen Maru Gothic", sans-serif;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #11132a;
+        --surface: #1a1d3a;
+        --ink: #eceeff;
+        --muted: #a5aacb;
+        --line: #2e3263;
+        --track: #282c55;
+        --grass: #5fcf86;
+        --on-grass: #0f1420;
+        --user-bubble: #22412f;
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #11132a;
+      --surface: #1a1d3a;
+      --ink: #eceeff;
+      --muted: #a5aacb;
+      --line: #2e3263;
+      --track: #282c55;
+      --grass: #5fcf86;
+      --on-grass: #0f1420;
+      --user-bubble: #22412f;
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-weight: 500;
+    }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    button:focus-visible { outline: 2px solid var(--grass); outline-offset: 2px; }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto auto;
+      gap: 10px;
+      max-width: 760px;
+      height: 100%;
+      margin: 0 auto;
+      padding-inline: 16px;
+      padding-block: 12px;
+    }
+
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .brand h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: .06em; line-height: 1.3; }
+    .brand p { margin: 0; font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+    .new-chat {
+      flex: none;
+      padding: 7px 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .new-chat:hover { border-color: var(--grass); }
+
+    token-meter {
+      --tm-ink: var(--ink);
+      --tm-muted: var(--muted);
+      --tm-surface: var(--surface);
+      --tm-line: var(--line);
+      --tm-track: var(--track);
+      --tm-font: var(--font-body);
+      --tm-num-font: var(--font-num);
+    }
+    token-meter:not(:defined) { min-height: 104px; }
+
+    .log {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 6px 2px;
+      overscroll-behavior: contain;
+    }
+    .sample-note { margin: 0 auto 2px; font-size: 12px; color: var(--muted); text-align: center; }
+    .msg { display: flex; align-items: flex-end; gap: 8px; }
+    .msg.user { justify-content: flex-end; }
+    .msg .text {
+      max-width: min(80%, 34em);
+      margin: 0;
+      padding: 9px 14px;
+      border-radius: 18px;
+      font-size: 15px;
+      line-height: 1.75;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+    .msg.ai .text { border: 1px solid var(--line); border-bottom-left-radius: 6px; background: var(--surface); }
+    .msg.user .text { border-bottom-right-radius: 6px; background: var(--user-bubble); }
+    .avatar {
+      display: grid;
+      place-items: center;
+      flex: none;
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: var(--surface);
+    }
+    .avatar svg { width: 24px; height: 24px; }
+    .avatar .eyes-x, .avatar .sweat { display: none; }
+
+    .typing .text { display: flex; gap: 4px; padding-block: 15px; }
+    .typing .text span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: bounce 1s ease-in-out infinite; }
+    .typing .text span:nth-child(2) { animation-delay: .15s; }
+    .typing .text span:nth-child(3) { animation-delay: .3s; }
+    @keyframes bounce { 0%, 60%, 100% { transform: none; opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .typing .text span { animation: none; } }
+
+    .composer {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 6px 6px 6px 16px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface);
+    }
+    .composer:focus-within { border-color: var(--grass); box-shadow: 0 0 0 1px var(--grass); }
+    .composer textarea {
+      flex: 1;
+      min-width: 0;
+      max-height: 140px;
+      padding: 6px 0;
+      border: 0;
+      outline: none;
+      background: transparent;
+      color: var(--ink);
+      font: inherit;
+      font-size: 15px;
+      line-height: 1.6;
+      resize: none;
+    }
+    .composer textarea::placeholder { color: var(--muted); }
+    .send {
+      flex: none;
+      padding: 8px 18px;
+      border: 0;
+      border-radius: 16px;
+      background: var(--grass);
+      color: var(--on-grass);
+      font-weight: 700;
+    }
+    .send:disabled { opacity: .5; cursor: default; }
+
+    .demo-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12px; color: var(--muted); }
+    .demo-tools strong { letter-spacing: .08em; }
+    .demo-tools button {
+      padding: 3px 11px;
+      border: 1px dashed var(--muted);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--ink);
+      font-size: 12px;
+    }
+    .demo-tools button:hover { border-style: solid; }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+  </style>
+  <script type="module" src="token-meter.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <h1>もーメーター</h1>
+        <p>うしと月のトークンメーター</p>
+      </div>
+      <button type="button" class="new-chat" id="new-chat">＋ 新しいチャット</button>
+    </header>
+
+    <token-meter id="meter" chat-limit="1000000" chat-used="420000" total-limit="5000000" total-used="3400000"></token-meter>
+
+    <main class="log" id="log" aria-live="polite" aria-label="会話">
+      <p class="sample-note">はじめから入っている会話と数字はサンプルです</p>
+      <div class="msg user"><p class="text">上のバーってなに？</p></div>
+      <div class="msg ai"><span class="avatar"></span><p class="text">トークン（AIが読み書きする文字のかたまり）の使用量だよ。うしが歩いているのが「このチャット」。いまの会話が、AIが一度に覚えておける量のどこまで来たかを表してるよ。右はしに着いたら、新しいチャットに切り替えどき。</p></div>
+      <div class="msg user"><p class="text">月のほうは？</p></div>
+      <div class="msg ai"><span class="avatar"></span><p class="text">月は「トータル」。これまで使ったトークンの合計を、自分で決めた予算と比べてるよ。満月に近づいたら使いすぎのサイン。なにか話しかけてみて。会話が進むと、うしも月も進むよ。</p></div>
+    </main>
+
+    <form class="composer" id="composer">
+      <label for="input" class="visually-hidden">メッセージ</label>
+      <textarea id="input" rows="1" placeholder="メッセージを入力（Enterで送信）"></textarea>
+      <button type="submit" class="send" id="send">送信</button>
+    </form>
+
+    <div class="demo-tools">
+      <strong>デモ操作</strong>
+      <button type="button" id="add-tokens">＋5万トークン</button>
+      <button type="button" id="reset-total">トータルを0に</button>
+      <span>返事とトークン数はシミュレーションです</span>
+    </div>
+  </div>
+
+  <script type="module">
+    const meter = document.getElementById("meter");
+    const log = document.getElementById("log");
+    const form = document.getElementById("composer");
+    const input = document.getElementById("input");
+    const send = document.getElementById("send");
+
+    await customElements.whenDefined("token-meter");
+    const cowSvg = customElements.get("token-meter").cowSvg;
+    document.querySelectorAll(".avatar").forEach((avatar) => { avatar.innerHTML = cowSvg; });
+
+    const REPLIES = [
+      "なるほど、おもしろいね。もう少しくわしく聞かせて。",
+      "メモしたよ。AIは毎回これまでの会話をまるごと読み直すから、話すほど「このチャット」の数字が大きくなるんだ。",
+      "いいね！ その話、夢の続きみたい。",
+      "ちなみに月のほうは、毎回読み直したぶんも足されていくよ。だから長い会話ほど早く満ちるんだ。",
+      "うんうん。うしが歩いていくの、見えた？ うしをクリックすると鳴くよ。",
+    ];
+    let turn = 0;
+
+    function pickReply() {
+      const ratio = meter.chatUsed / meter.chatLimit;
+      if (ratio >= 0.95) return "もー げんかい！ 上の「新しいチャット」から始め直すと、うしがスタートにもどるよ。";
+      if (ratio >= 0.8) return "会話がだいぶ長くなってきたね。大事なことをまとめて、新しいチャットに引っ越すのもアリだよ。";
+      return REPLIES[turn++ % REPLIES.length];
+    }
+
+    // 日本語はだいたい1文字1トークン強
+    const estimate = (text) => Math.ceil(text.length * 1.2);
+
+    // 本物の Claude API の usage と同じ形。デモでは動きが見えるよう、毎回3〜6万トークンの資料を読んだことにする
+    function fakeUsage(userText, replyText) {
+      return {
+        cache_read_input_tokens: meter.chatUsed,
+        cache_creation_input_tokens: 0,
+        input_tokens: estimate(userText) + 30_000 + Math.floor(Math.random() * 30_000),
+        output_tokens: estimate(replyText),
+      };
+    }
+
+    function addMessage(role, text) {
+      const row = document.createElement("div");
+      row.className = `msg ${role}`;
+      if (role === "ai") {
+        const avatar = document.createElement("span");
+        avatar.className = "avatar";
+        avatar.innerHTML = cowSvg;
+        row.append(avatar);
+      }
+      const bubble = document.createElement("p");
+      bubble.className = "text";
+      bubble.textContent = text;
+      row.append(bubble);
+      log.append(row);
+      log.scrollTop = log.scrollHeight;
+      return row;
+    }
+
+    function addTyping() {
+      const row = addMessage("ai", "");
+      row.classList.add("typing");
+      row.querySelector(".text").innerHTML = "<span></span><span></span><span></span>";
+      row.setAttribute("aria-label", "入力中");
+      return row;
+    }
+
+    function autosize() {
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+    }
+
+    let busy = false;
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = input.value.trim();
+      if (!text || busy) return;
+      busy = true;
+      send.disabled = true;
+      addMessage("user", text);
+      input.value = "";
+      autosize();
+      const typing = addTyping();
+      setTimeout(() => {
+        const reply = pickReply();
+        typing.remove();
+        addMessage("ai", reply);
+        meter.addUsage(fakeUsage(text, reply));
+        busy = false;
+        send.disabled = false;
+      }, 700 + Math.random() * 500);
+    });
+
+    input.addEventListener("input", autosize);
+    input.addEventListener("keydown", (event) => {
+      // 日本語の変換中の Enter では送らない
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      form.requestSubmit();
+    });
+
+    document.getElementById("new-chat").addEventListener("click", () => {
+      log.replaceChildren();
+      turn = 0;
+      meter.newChat();
+      addMessage("ai", "新しいチャットだよ。うしはスタートにもどったよ。月（トータル）はそのまま続いていくよ。");
+    });
+    document.getElementById("add-tokens").addEventListener("click", () => {
+      meter.chatUsed += 50_000;
+      meter.totalUsed += 50_000;
+    });
+    document.getElementById("reset-total").addEventListener("click", () => meter.resetTotal());
+  </script>
+</body>
+</html>

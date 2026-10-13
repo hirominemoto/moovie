@@ -58,3 +58,53 @@ Meiryo は Windows に付属する Microsoft のライセンスフォントな�
 - `dream/puzzle.py` — 絵をジグソーパズルのピースに切り分ける
 - `dream/music.py` — パッド・FMベル・きらめき・リバーブをすべて合成
 - `dream/render.py` — 全レイヤーを合成して ffmpeg で mp4 に書き出す
+
+## トークンメーター（もーメーター）
+
+AIチャットの画面に置く、トークン使用量のバー。部品とデモは [`token-meter/`](token-meter/) にある。
+
+- **このチャット**（うし）: いまの会話の大きさ。AIが一度に読める量（コンテキスト）の何%まで来たか。うしが右へ歩いていく
+- **トータル**（月）: これまでに使ったトークンの合計。自分で決めた予算の何%か。月が満ちていく
+
+50%・80%・95% で色と札が変わって、うしは汗をかき、最後は目を回す。うしや月をクリックするとしゃべる。
+
+デモは [`token-meter/index.html`](token-meter/index.html)（返事とトークン数はシミュレーション）。
+モジュールを読み込むので、手元で見るときは `python -m http.server` などで開く（ファイルをダブルクリックでは動かない）。
+
+### 自分のチャット画面に組み込む
+
+```html
+<script type="module" src="token-meter.js"></script>
+<token-meter id="meter" chat-limit="1000000" total-limit="5000000" storage-key="my-chat-total"></token-meter>
+```
+
+```js
+const meter = document.getElementById("meter");
+
+// Claude API を呼んだら、レスポンスの usage をそのまま渡す
+meter.addUsage(data.usage);
+
+// 新しい会話を始めたとき（うしがスタートにもどる）
+meter.newChat();
+```
+
+API キーはブラウザに置かないこと。サーバー側で Claude API を呼んで、`usage` だけブラウザに返す形にする。
+
+| 属性 | 意味 |
+| --- | --- |
+| `chat-limit` | このチャットの上限。いまの Claude（Opus 5.5 / Sonnet 5.5 / Haiku 5.5 / Fable 5.1）は 1,000,000 で、これが初期値。Haiku 4.5 なら 200,000 |
+| `total-limit` | トータルの予算。自分で決める（初期値 5,000,000） |
+| `chat-used` / `total-used` | 最初に表示する使用量 |
+| `storage-key` | 付けると、トータルをブラウザ（localStorage）に覚えておいて、開きなおしても続きから数える |
+| `chat-label` / `total-label` | ラベルの文字（初期値「このチャット」「トータル」） |
+
+JavaScript からは `chatUsed` `totalUsed` `chatLimit` `totalLimit` を読み書きできて、`addUsage(usage)` `newChat()` `resetTotal()` が使える。
+段階が変わると `levelchange` イベント（`detail: { meter, level, ratio }`、`level` は `calm` / `half` / `near` / `full`）が飛ぶ。
+色とフォントは `--tm-ink` `--tm-muted` `--tm-surface` `--tm-line` `--tm-track` `--tm-font` `--tm-num-font` でページに合わせられる。
+
+### 数え方
+
+`addUsage` は `input_tokens + cache_creation_input_tokens + cache_read_input_tokens + output_tokens` を1回ぶんとして数える。
+
+- **このチャット**は最新の1回ぶんをそのまま使う。AI は毎回それまでの会話をまるごと読み直すので、これがいまの会話の大きさになる（足し算はしない）
+- **トータル**は1回ぶんを毎回足していく。読み直したぶんも入るので、長い会話ほど早く増える（キャッシュから読んだぶんは料金が安いけれど、ここでは同じ1トークンとして数える）
