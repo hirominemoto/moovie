@@ -453,7 +453,7 @@
     return entry;
   }
 
-  let convo = { id: null, at: 0, busy: false, base: null, parts: null, screenAt: 0, error: null, messages: 0 };
+  let convo = { id: null, at: 0, busy: false, parts: null, error: null, messages: 0 };
   let changedSinceFetch = false;
 
   async function fetchConversation(id) {
@@ -483,10 +483,9 @@
       };
       const projectId = data.project_uuid ?? data.project?.uuid;
       if (projectId && settings.countProject) parts.project = await projectTokens(org, projectId);
-      const base = parts.text + parts.fileTokens + (parts.project?.tokens ?? 0);
-      next = { id, at: startedAt, base, parts, screenAt: estimateTokens(screenText()), error: null, messages: messages.length };
+      next = { id, at: startedAt, parts, error: null, messages: messages.length };
     } catch (error) {
-      next = { id, at: startedAt, base: null, parts: null, screenAt: 0, error: errorText(error), messages: 0 };
+      next = { id, at: startedAt, parts: null, error: errorText(error), messages: 0 };
     }
     convo = { ...next, busy: false };
     if (before.id === id && convo.messages > before.messages) refreshLimits();
@@ -591,6 +590,14 @@
   }
 
   // ---- このチャット（うし） ----
+  // 資料が多くて会話と合わせて上限に収まらないとき、claude.ai は資料の中から必要なところだけ探して読むので足さない
+  function isDocsCounted(parts) {
+    const docs = parts.project && !parts.project.error ? parts.project.tokens : 0;
+    return docs > 0 && parts.text + parts.fileTokens + docs <= settings.limit;
+  }
+  const conversationTokens = (parts) => parts.text + parts.fileTokens + (isDocsCounted(parts) ? parts.project.tokens : 0);
+  const docsNote = (parts) => (isDocsCounted(parts) ? "数えている" : "上限に収まらないので、必要なところだけ読まれるはず。数えていない");
+
   let chat = { id: undefined, tokens: 0, level: "calm", source: "none", screen: 0 };
 
   function updateChat() {
@@ -600,9 +607,8 @@
     let screen = 0;
     if (id) {
       screen = estimateTokens(screenText());
-      if (convo.id === id && convo.base != null) {
-        // 会話データを読んだあとに画面へ足された文字（返事を書いている途中など）も足す
-        tokens = convo.base + Math.max(0, screen - convo.screenAt);
+      if (convo.id === id && convo.parts) {
+        tokens = conversationTokens(convo.parts);
         source = "api";
       } else if (screen > 0) {
         tokens = screen;
@@ -635,7 +641,7 @@
     if (parts) {
       lines.push(`会話 ${parts.messages}件：約${man(parts.text)}`);
       if (parts.files) lines.push(`ファイル ${parts.files}個：約${man(parts.fileTokens)}`);
-      if (parts.project?.count) lines.push(`プロジェクトの資料 ${parts.project.count}個：約${man(parts.project.tokens)}`);
+      if (parts.project?.count) lines.push(`プロジェクトの資料 ${parts.project.count}個：約${man(parts.project.tokens)}（${docsNote(parts)}）`);
     } else if (source === "screen") {
       lines.push("（画面に出ている文字から数えています）");
     }
@@ -737,7 +743,7 @@
         rows.push(["会話データ", `${parts.messages}件 約${man(parts.text)}`]);
         if (parts.files) rows.push(["ファイル", `${parts.files}個 約${man(parts.fileTokens)}`]);
         if (parts.project) {
-          rows.push(["資料", parts.project.error ? `読めない（${parts.project.error}）` : `${parts.project.count}個 約${man(parts.project.tokens)}`]);
+          rows.push(["資料", parts.project.error ? `読めない（${parts.project.error}）` : `${parts.project.count}個 約${man(parts.project.tokens)}（${docsNote(parts)}）`]);
         }
       } else rows.push(["会話データ", "まだ読んでいない"]);
       rows.push(["画面の文字", `吹き出し ${screenMessages().length}個 / 約${man(chat.screen)}`]);
@@ -894,9 +900,14 @@
     }
     if (id && !convo.busy) {
       const isNewChat = convo.id !== id;
-      // 返事を書き終えて画面が落ち着いたら読みなおす。読めなかったときは間をあける
-      const isSettled = changedSinceFetch && now - lastMutation > 2500 && now - convo.at > (convo.error ? 30_000 : 8000);
-      if (isNewChat || isSettled) fetchConversation(id);
+      // 画面が変わって落ち着いたら読みなおす。ずっと動き続ける画面でも20秒に1回は読む。読めなかったときは間をあける
+      const waited = now - convo.at;
+      const isDue =
+        changedSinceFetch &&
+        document.visibilityState === "visible" &&
+        waited > (convo.error ? 30_000 : 10_000) &&
+        (now - lastMutation > 2500 || waited > 20_000);
+      if (isNewChat || isDue) fetchConversation(id);
     }
     if (isDirty) {
       isDirty = false;
