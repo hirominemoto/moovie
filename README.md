@@ -112,5 +112,5 @@ JavaScript からは `chatUsed` `totalUsed` `chatLimit` `totalLimit` を読み�
 ## もーバー（claude.ai 用の拡張機能）
 
 claude.ai のチャット画面の上に、うしと月のバーをずっと出しておく Chrome / Edge の拡張機能。
-うしは「このチャット」のトークン量（画面の文字からの推定）、月は claude.ai の使用上限（5時間枠・1週間）。
+うしは「このチャット」のトークン量（会話データの文字からの推定）、月は claude.ai の使用上限（5時間枠・1週間）。
 入れ方と数字の正確さについては [`claude-moo-bar/README.md`](claude-moo-bar/README.md)。

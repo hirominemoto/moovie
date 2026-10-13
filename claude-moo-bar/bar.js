@@ -1,8 +1,10 @@
 // もーバー: claude.ai のチャット画面の上に、うしと月のトークンバーを出す
 //
-// うし（このチャット）: 画面に出ている会話の文字から数えたトークンの推定。上限は設定で選ぶ
-// 月（使用上限）:       claude.ai の設定画面「使用量」と同じ 5時間枠・週の使用率。
-//                       公式の方法ではないので、読めなかったときは「—」にする
+// うし（このチャット）: claude.ai が画面に会話を出すときに読む会話データから数えたトークンの推定。
+//                       読めないときは画面の文字から数える。上限は設定で選ぶ
+// 月（使用上限）:       claude.ai の設定画面「使用量」と同じ 5時間枠・週の使用率。多く使っているほうで満ち欠けする
+//
+// どちらも公式に用意された読み方ではないので、読めないときは画面の文字に切り替えるか「—」にする
 (() => {
   if (window.__mooBar) return;
   window.__mooBar = true;
@@ -24,7 +26,7 @@
     }
   };
 
-  const settings = { limit: 200_000, extra: 0, showLimits: true, ...load("settings", {}) };
+  const settings = { limit: 200_000, extra: 0, showLimits: true, countProject: true, ...load("settings", {}) };
 
   const COW_SVG = `
 <svg class="cow" viewBox="0 0 48 46" aria-hidden="true">
@@ -166,18 +168,21 @@
 
 .moonicon {
   flex: none;
-  width: 16px;
-  height: 16px;
-  border: 1px solid rgba(255, 217, 107, .8);
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(255, 217, 107, .85);
   border-radius: 50%;
   background: var(--moon-shade);
   box-shadow:
-    inset calc(var(--p, 0) * -14px) 0 0 0 var(--moon),
-    0 0 calc(2px + var(--p, 0) * 8px) rgba(255, 217, 107, calc(.2 + var(--p, 0) * .5));
+    inset calc(var(--p, 0) * -16px) 0 0 0 var(--moon),
+    0 0 calc(2px + var(--p, 0) * 8px) rgba(255, 217, 107, calc(.25 + var(--p, 0) * .5));
   cursor: pointer;
   transition: box-shadow .6s;
 }
-.limits[data-level="near"] .pct b, .limits[data-level="full"] .pct b { color: var(--warn); }
+.win { display: flex; align-items: center; gap: 4px; }
+.win[hidden] { display: none; }
+.win .pct { min-width: 2.2em; }
+.win[data-warn] .pct b { color: var(--warn); }
 .limits.off .pct b { color: var(--muted); font-weight: 500; }
 
 .btn {
@@ -198,7 +203,7 @@
 .mini { all: unset; display: none; align-items: center; gap: 6px; padding: 0 6px 0 2px; cursor: pointer; }
 .mini .chat { display: flex; }
 .mini .cow { width: 20px; height: 20px; }
-.mini .moonicon { width: 14px; height: 14px; }
+.mini .moonicon { width: 15px; height: 15px; box-shadow: inset calc(var(--p, 0) * -13px) 0 0 0 var(--moon); }
 .mini b { font-size: 13px; font-weight: 700; }
 .bar.min .full { display: none; }
 .bar.min .mini { display: flex; }
@@ -234,7 +239,9 @@
   right: 0;
   display: grid;
   gap: 12px;
-  width: 280px;
+  width: 300px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -245,7 +252,7 @@
   user-select: text;
 }
 .panel[hidden] { display: none; }
-.panel h2 { margin: 0; font-size: 13px; font-weight: 700; }
+.panel h2, .panel h3 { margin: 0; font-size: 13px; font-weight: 700; }
 .panel label { display: grid; gap: 6px; font-size: 12px; font-weight: 600; line-height: 1.4; }
 .panel select, .panel input[type="number"] {
   padding: 6px 8px;
@@ -258,6 +265,10 @@
 }
 .panel label.check { display: flex; align-items: center; gap: 8px; }
 .panel p { margin: 0; font-size: 11px; line-height: 1.65; color: var(--muted); }
+.diag { display: grid; gap: 6px; padding: 10px; border-radius: 10px; background: var(--line); }
+.diag dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; font-size: 11px; line-height: 1.5; }
+.diag dt { color: var(--muted); }
+.diag dd { margin: 0; overflow-wrap: anywhere; }
 .panel .close {
   all: unset;
   justify-self: end;
@@ -307,6 +318,9 @@
   const CHAT_UP = { half: "まだまだ 歩けるモ〜", near: "そろそろ 新しいチャットかモ", full: "もー 歩けない…！" };
   const LIMIT_UP = { half: "使用上限の半分をこえたよ", near: "そろそろ 使いすぎかも", full: "満月！ もうすぐ上限" };
 
+  // 画像やPDFなどのファイルは中身の文字が取れないので、1つこのくらいとして数える
+  const FILE_TOKENS = 1500;
+
   const digits = (n) => Math.round(n).toLocaleString("ja-JP");
   function man(n) {
     n = Math.round(n);
@@ -325,6 +339,7 @@
     if (!date || Number.isNaN(date.getTime())) return null;
     return date.toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
   };
+  const errorText = (error) => error?.message || String(error);
 
   // 日本語は1文字1トークン強、英語などは3〜4文字で1トークンくらい
   function estimateTokens(text) {
@@ -339,22 +354,144 @@
     return Math.round(wide * 1.2 + narrow / 3.3);
   }
 
-  // claude.ai の会話の吹き出し。見つからないときは画面の本文まるごとで数える
+  const chatIdOf = (path) => path.match(/\/chat\/([^/?#]+)/)?.[1] ?? null;
+
+  // ---- 画面の文字から数える（会話データが読めないときの予備） ----
   const MESSAGES = '[data-testid="user-message"], .font-claude-message, .font-claude-response, [data-is-streaming]';
-  function conversationText() {
-    const found = [...document.querySelectorAll(MESSAGES)].filter((el) => !el.parentElement?.closest(MESSAGES));
+  const NOT_CONVERSATION = 'nav, aside, header, footer, form, button, textarea, [contenteditable="true"], script, style, noscript, svg';
+
+  function screenMessages() {
+    return [...document.querySelectorAll(MESSAGES)].filter((el) => !el.parentElement?.closest(MESSAGES));
+  }
+
+  function screenText() {
+    const found = screenMessages();
     if (found.length) return found.map((el) => el.textContent).join("\n");
-    const main = document.querySelector("main");
-    if (!main) return "";
-    let text = main.textContent;
-    for (const field of main.querySelectorAll('[contenteditable="true"], textarea')) {
-      const draft = field.value ?? field.textContent;
-      if (draft) text = text.replace(draft, "");
-    }
+    const scope = document.querySelector("main") ?? document.body;
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => (node.parentElement?.closest(NOT_CONVERSATION) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
+    let text = "";
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) text += node.data;
     return text;
   }
-  const chatIdOf = (path) => path.match(/\/chat\/([^/?#]+)/)?.[1] ?? null;
-  const userMessageCount = () => document.querySelectorAll('[data-testid="user-message"]').length;
+
+  // ---- claude.ai の中の情報を読む ----
+  let orgId = null;
+
+  function orgFromCookie() {
+    const match = document.cookie.match(/(?:^|;\s*)lastActiveOrg=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  async function getJson(path, params) {
+    const url = new URL(path, location.origin);
+    for (const [key, value] of Object.entries(params ?? {})) url.searchParams.set(key, value);
+    const res = await fetch(url, { credentials: "include", headers: { accept: "application/json" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  async function ensureOrg() {
+    orgId = orgFromCookie() ?? orgId;
+    if (!orgId) {
+      const list = await getJson("/api/organizations");
+      orgId = Array.isArray(list) ? (list.find((org) => org?.uuid)?.uuid ?? null) : null;
+    }
+    if (!orgId) throw new Error("組織が見つかりません");
+    return encodeURIComponent(orgId);
+  }
+
+  // 編集や再生成で枝分かれした会話は、いま表示している枝だけをたどる
+  function currentBranch(data) {
+    const all = data.chat_messages;
+    const leaf = data.current_leaf_message_uuid;
+    if (!leaf || !all.every((m) => m?.uuid)) return all;
+    const byId = new Map(all.map((m) => [m.uuid, m]));
+    const path = [];
+    for (let m = byId.get(leaf); m && path.length < all.length; m = byId.get(m.parent_message_uuid)) path.push(m);
+    return path.length ? path.reverse() : all;
+  }
+
+  const textOf = (value) => {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map(textOf).join("\n");
+    if (value && typeof value === "object") return textOf(value.text ?? value.content ?? "");
+    return "";
+  };
+
+  // 考えている途中の文章（thinking）は次の返事には持ち越されないので数えない
+  function messageText(message) {
+    const parts = [];
+    if (Array.isArray(message.content) && message.content.length) {
+      for (const block of message.content) {
+        if (block?.type === "text") parts.push(block.text ?? "");
+        else if (block?.type === "tool_use") parts.push(JSON.stringify(block.input ?? {}));
+        else if (block?.type === "tool_result") parts.push(textOf(block.content));
+      }
+    } else if (typeof message.text === "string") {
+      parts.push(message.text);
+    }
+    for (const attachment of message.attachments ?? []) parts.push(attachment?.extracted_content ?? "");
+    return parts.join("\n");
+  }
+
+  const projectDocs = new Map();
+
+  async function projectTokens(org, projectId) {
+    const cached = projectDocs.get(projectId);
+    if (cached && Date.now() - cached.at < 10 * 60_000) return cached;
+    let entry;
+    try {
+      const docs = await getJson(`/api/organizations/${org}/projects/${encodeURIComponent(projectId)}/docs`);
+      const list = Array.isArray(docs) ? docs : [];
+      entry = { at: Date.now(), count: list.length, tokens: estimateTokens(list.map((doc) => doc?.content ?? "").join("\n")), error: null };
+    } catch (error) {
+      entry = { at: Date.now(), count: 0, tokens: 0, error: errorText(error) };
+    }
+    projectDocs.set(projectId, entry);
+    return entry;
+  }
+
+  let convo = { id: null, at: 0, busy: false, base: null, parts: null, screenAt: 0, error: null, messages: 0 };
+  let changedSinceFetch = false;
+
+  async function fetchConversation(id) {
+    if (convo.busy) return;
+    const startedAt = Date.now();
+    const before = convo;
+    convo = { ...convo, busy: true };
+    changedSinceFetch = false;
+    let next;
+    try {
+      const org = await ensureOrg();
+      const data = await getJson(`/api/organizations/${org}/chat_conversations/${encodeURIComponent(id)}`, {
+        tree: "True",
+        rendering_mode: "messages",
+        render_all_tools: "true",
+      });
+      if (!Array.isArray(data?.chat_messages)) throw new Error("会話が入っていません");
+      const messages = currentBranch(data);
+      const fileCount = (m) => [m.files_v2, m.files].find(Array.isArray)?.length ?? 0;
+      const files = messages.reduce((n, m) => n + fileCount(m), 0);
+      const parts = {
+        messages: messages.length,
+        text: estimateTokens(messages.map(messageText).join("\n")),
+        files,
+        fileTokens: files * FILE_TOKENS,
+        project: null,
+      };
+      const projectId = data.project_uuid ?? data.project?.uuid;
+      if (projectId && settings.countProject) parts.project = await projectTokens(org, projectId);
+      const base = parts.text + parts.fileTokens + (parts.project?.tokens ?? 0);
+      next = { id, at: startedAt, base, parts, screenAt: estimateTokens(screenText()), error: null, messages: messages.length };
+    } catch (error) {
+      next = { id, at: startedAt, base: null, parts: null, screenAt: 0, error: errorText(error), messages: 0 };
+    }
+    convo = { ...next, busy: false };
+    if (before.id === id && convo.messages > before.messages) refreshLimits();
+    updateChat();
+  }
 
   // ---- 画面 ----
   const host = document.createElement("moo-bar");
@@ -385,9 +522,8 @@
     <div class="sep"></div>
     <div class="seg limits off" data-level="calm">
       <span class="moonicon"></span>
-      <span class="lbl limit-lbl">使用上限</span>
-      <span class="pct nodata"><b class="limit-pct">—</b><small>%</small></span>
-      <span class="sub limit-sub"></span>
+      <span class="win five"><span class="lbl five-lbl">使用上限</span><span class="pct nodata"><b class="five-pct">—</b><small>%</small></span></span>
+      <span class="win week" hidden><span class="lbl">週</span><span class="pct"><b class="week-pct">—</b><small>%</small></span></span>
     </div>
     <button class="btn gear" type="button" title="設定" aria-label="設定">${GEAR_SVG}</button>
     <button class="btn shrink" type="button" title="小さくする" aria-label="小さくする">${MINUS_SVG}</button>
@@ -406,12 +542,17 @@
         <option value="1000000">100万トークン</option>
       </select>
     </label>
-    <label>上乗せするトークン（プロジェクトの資料など）
+    <label>上乗せするトークン
       <input class="opt-extra" type="number" min="0" step="1000" inputmode="numeric">
     </label>
+    <label class="check"><input class="opt-project" type="checkbox"> プロジェクトの資料も数える</label>
     <label class="check"><input class="opt-limits" type="checkbox"> 使用上限（5時間・週）を表示する</label>
-    <p>うしの数字は、画面に出ている会話の文字から数えた推定です。システムの指示、添付ファイル、プロジェクトの資料は画面に出ないので入っていません。上限はプランやモデルで変わります。</p>
-    <p>月の数字は、claude.ai の設定画面「使用量」と同じものを読んでいます。公式の方法ではないので、読めないときは「—」になります。</p>
+    <p>うしの数字は、claude.ai の会話データの文字から数えた推定です。読めないときは画面に出ている文字で数えます。システムの指示は入っていません。上限はプランやモデルで変わります。</p>
+    <p>月は、5時間枠と週のうち多く使っているほうで満ち欠けします。数字は claude.ai の設定画面「使用量」と同じものです。どちらも公式の読み方ではないので、読めないときは「—」になります。</p>
+    <div class="diag">
+      <h3>しくみの状態</h3>
+      <dl class="diag-list"></dl>
+    </div>
     <button class="close" type="button">閉じる</button>
   </div>
 </div>`;
@@ -450,11 +591,25 @@
   }
 
   // ---- このチャット（うし） ----
-  let chat = { id: undefined, tokens: 0, level: "calm" };
+  let chat = { id: undefined, tokens: 0, level: "calm", source: "none", screen: 0 };
 
   function updateChat() {
     const id = chatIdOf(location.pathname);
-    const tokens = id ? estimateTokens(conversationText()) + (Number(settings.extra) || 0) : 0;
+    let tokens = 0;
+    let source = "none";
+    let screen = 0;
+    if (id) {
+      screen = estimateTokens(screenText());
+      if (convo.id === id && convo.base != null) {
+        // 会話データを読んだあとに画面へ足された文字（返事を書いている途中など）も足す
+        tokens = convo.base + Math.max(0, screen - convo.screenAt);
+        source = "api";
+      } else if (screen > 0) {
+        tokens = screen;
+        source = "screen";
+      }
+      tokens += Number(settings.extra) || 0;
+    }
     const ratio = tokens / settings.limit;
     const p = Math.min(1, Math.max(0, ratio));
     const level = levelOf(ratio);
@@ -462,9 +617,8 @@
 
     if (sameChat && tokens > chat.tokens) play("walking", 1000);
     if (sameChat && RANK[level] > RANK[chat.level]) say(CHAT_UP[level], $(".rider"));
-    chat = { id, tokens, level };
+    chat = { id, tokens, level, source, screen };
 
-    const word = ratio >= 1 ? "もー はいらない" : CHAT_WORDS[level];
     for (const seg of [chatSeg, miniChat]) {
       seg.dataset.level = level;
       seg.style.setProperty("--p", p.toFixed(4));
@@ -475,25 +629,25 @@
     const track = $(".track");
     track.setAttribute("aria-valuenow", String(Math.min(100, Math.floor(ratio * 100))));
     track.setAttribute("aria-valuetext", `${percent(ratio)}%（約${digits(tokens)} / ${digits(settings.limit)} トークン）`);
-    chatSeg.title = `このチャット：約${digits(tokens)} トークン（推定）/ 上限 ${digits(settings.limit)}\n${word}`;
+
+    const lines = [`このチャット：約${digits(tokens)} トークン（推定）/ 上限 ${digits(settings.limit)}`];
+    const parts = source === "api" ? convo.parts : null;
+    if (parts) {
+      lines.push(`会話 ${parts.messages}件：約${man(parts.text)}`);
+      if (parts.files) lines.push(`ファイル ${parts.files}個：約${man(parts.fileTokens)}`);
+      if (parts.project?.count) lines.push(`プロジェクトの資料 ${parts.project.count}個：約${man(parts.project.tokens)}`);
+    } else if (source === "screen") {
+      lines.push("（画面に出ている文字から数えています）");
+    }
+    if (settings.extra) lines.push(`上乗せ：${digits(settings.extra)}`);
+    lines.push(ratio >= 1 ? "もー はいらない" : CHAT_WORDS[level]);
+    chatSeg.title = lines.join("\n");
+    renderDiag();
   }
 
   // ---- 使用上限（月） ----
   let limits = { state: "off" };
-  let lastFetch = 0;
-  let orgId = null;
-
-  function orgFromCookie() {
-    const match = document.cookie.match(/(?:^|;\s*)lastActiveOrg=([^;]+)/);
-    return match ? decodeURIComponent(match[1]) : null;
-  }
-
-  async function orgFromApi() {
-    const res = await fetch(new URL("/api/organizations", location.origin), { credentials: "include" });
-    if (!res.ok) return null;
-    const list = await res.json();
-    return Array.isArray(list) ? (list.find((org) => org?.uuid)?.uuid ?? null) : null;
-  }
+  let lastLimitsFetch = 0;
 
   async function refreshLimits({ force = false } = {}) {
     if (!settings.showLimits) {
@@ -502,19 +656,12 @@
       return;
     }
     const now = Date.now();
-    if (!force && now - lastFetch < 60_000) return;
-    lastFetch = now;
+    if (!force && now - lastLimitsFetch < 60_000) return;
+    lastLimitsFetch = now;
     const before = limits;
     try {
-      orgId = orgFromCookie() ?? orgId ?? (await orgFromApi());
-      const org = orgId;
-      if (!org) throw new Error("組織が見つかりません");
-      const res = await fetch(new URL(`/api/organizations/${encodeURIComponent(org)}/usage`, location.origin), {
-        credentials: "include",
-        headers: { accept: "application/json" },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const org = await ensureOrg();
+      const data = await getJson(`/api/organizations/${org}/usage`);
       const pick = (key) => {
         const slot = data?.[key];
         return slot && typeof slot.utilization === "number"
@@ -526,40 +673,89 @@
       if (!five && !week) throw new Error("使用量が入っていません");
       limits = { state: "ok", five, week };
     } catch (error) {
-      limits = { state: "error", reason: error?.message || String(error) };
+      limits = { state: "error", reason: errorText(error) };
     }
     renderLimits(before);
   }
 
+  // 5時間枠と週のうち、多く使っているほう
+  const busiest = (l) => (l?.state === "ok" ? [l.five, l.week].filter(Boolean).sort((a, b) => b.pct - a.pct)[0] : null);
+
   function renderLimits(before) {
-    const main = limits.state === "ok" ? (limits.five ?? limits.week) : null;
-    const ratio = main ? main.pct / 100 : 0;
+    const top = busiest(limits);
+    const ratio = top ? top.pct / 100 : 0;
     const level = levelOf(ratio);
-    const p = Math.min(1, ratio).toFixed(4);
+    // 新月でも月だとわかるよう、細い三日月は残す
+    const phase = top ? (0.15 + 0.85 * Math.min(1, ratio)).toFixed(4) : "0";
 
-    limitSeg.classList.toggle("off", !main);
+    limitSeg.classList.toggle("off", !top);
     limitSeg.dataset.level = level;
-    for (const icon of root.querySelectorAll(".moonicon")) icon.style.setProperty("--p", p);
-    for (const el of [$(".limits .pct"), $(".mini-limit-wrap")]) el.classList.toggle("nodata", !main);
+    for (const icon of root.querySelectorAll(".moonicon")) icon.style.setProperty("--p", phase);
 
-    const text = main ? String(Math.round(main.pct)) : "—";
-    $(".limit-pct").textContent = text;
-    $(".mini-limit").textContent = text;
-    $(".limit-lbl").textContent = !main ? "使用上限" : limits.five ? "5時間" : "週";
-    $(".limit-sub").textContent = limits.five && limits.week ? `週 ${Math.round(limits.week.pct)}%` : "";
+    const five = limits.state === "ok" ? limits.five : null;
+    const week = limits.state === "ok" ? limits.week : null;
+    $(".five-lbl").textContent = five ? "5時間" : week ? "週" : "使用上限";
+    const first = five ?? week;
+    $(".five-pct").textContent = first ? String(Math.round(first.pct)) : "—";
+    $(".five .pct").classList.toggle("nodata", !first);
+    $(".five").toggleAttribute("data-warn", Boolean(first && first.pct >= 80));
+    $(".week").hidden = !(five && week);
+    $(".week-pct").textContent = week ? String(Math.round(week.pct)) : "—";
+    $(".week").toggleAttribute("data-warn", Boolean(week && week.pct >= 80));
+    $(".mini-limit").textContent = top ? String(Math.round(top.pct)) : "—";
+    $(".mini-limit-wrap").classList.toggle("nodata", !top);
 
     if (limits.state === "ok") {
       const lines = [];
-      if (limits.five) lines.push(`5時間枠：${Math.round(limits.five.pct)}%${when(limits.five.resetsAt) ? `（${when(limits.five.resetsAt)} にリセット）` : ""}`);
-      if (limits.week) lines.push(`1週間：${Math.round(limits.week.pct)}%${when(limits.week.resetsAt) ? `（${when(limits.week.resetsAt)} にリセット）` : ""}`);
+      if (five) lines.push(`5時間枠：${Math.round(five.pct)}%${when(five.resetsAt) ? `（${when(five.resetsAt)} にリセット）` : ""}`);
+      if (week) lines.push(`1週間：${Math.round(week.pct)}%${when(week.resetsAt) ? `（${when(week.resetsAt)} にリセット）` : ""}`);
+      lines.push("月は多く使っているほうで満ち欠けします");
       limitSeg.title = lines.join("\n");
-      const prev = before?.state === "ok" ? levelOf((before.five ?? before.week).pct / 100) : null;
-      if (prev && RANK[level] > RANK[prev]) say(LIMIT_UP[level], $(".limits .moonicon"));
+      const prev = busiest(before);
+      if (prev && RANK[level] > RANK[levelOf(prev.pct / 100)]) say(LIMIT_UP[level], $(".limits .moonicon"));
     } else if (limits.state === "error") {
       limitSeg.title = `使用上限を読めませんでした（${limits.reason}）。claude.ai の設定画面「使用量」で確かめてください。`;
     } else {
       limitSeg.title = "使用上限の表示はオフです（設定でオンにできます）";
     }
+    renderDiag();
+  }
+
+  // ---- しくみの状態（うまく動かないときに見る欄） ----
+  function renderDiag() {
+    if (panel.hidden) return;
+    const id = chatIdOf(location.pathname);
+    const rows = [
+      ["ページ", id ? "チャット" : "チャット以外"],
+      ["数え方", { api: "会話データ", screen: "画面の文字", none: "数えていない" }[chat.source]],
+    ];
+    if (id) {
+      if (convo.busy) rows.push(["会話データ", "読んでいるところ"]);
+      else if (convo.id === id && convo.error) rows.push(["会話データ", `読めない（${convo.error}）`]);
+      else if (convo.id === id && convo.parts) {
+        const parts = convo.parts;
+        rows.push(["会話データ", `${parts.messages}件 約${man(parts.text)}`]);
+        if (parts.files) rows.push(["ファイル", `${parts.files}個 約${man(parts.fileTokens)}`]);
+        if (parts.project) {
+          rows.push(["資料", parts.project.error ? `読めない（${parts.project.error}）` : `${parts.project.count}個 約${man(parts.project.tokens)}`]);
+        }
+      } else rows.push(["会話データ", "まだ読んでいない"]);
+      rows.push(["画面の文字", `吹き出し ${screenMessages().length}個 / 約${man(chat.screen)}`]);
+    }
+    rows.push([
+      "使用上限",
+      limits.state === "ok" ? "読めた" : limits.state === "error" ? `読めない（${limits.reason}）` : "オフ",
+    ]);
+    const list = $(".diag-list");
+    list.replaceChildren(
+      ...rows.flatMap(([label, value]) => {
+        const dt = document.createElement("dt");
+        const dd = document.createElement("dd");
+        dt.textContent = label;
+        dd.textContent = value;
+        return [dt, dd];
+      }),
+    );
   }
 
   // ---- 操作 ----
@@ -569,10 +765,11 @@
   });
   $(".limits .moonicon").addEventListener("click", () => {
     const icon = $(".limits .moonicon");
-    if (limits.state !== "ok") return say("使用上限は いま読めないみたい", icon);
-    const slot = limits.five ?? limits.week;
-    const reset = when(slot.resetsAt);
-    say(reset ? `${reset} にリセット` : `${Math.round(slot.pct)}% つかったよ`, icon);
+    const top = busiest(limits);
+    if (!top) return say("使用上限は いま読めないみたい", icon);
+    const reset = when(top.resetsAt);
+    const name = top === limits.five ? "5時間枠" : "週";
+    say(reset ? `${name}は ${reset} にリセット` : `${name}は ${Math.round(top.pct)}% つかったよ`, icon);
   });
 
   function setMinimized(isMin) {
@@ -588,7 +785,9 @@
     panel.hidden = !panel.hidden;
     $(".opt-limit").value = String(settings.limit);
     $(".opt-extra").value = String(settings.extra || 0);
+    $(".opt-project").checked = settings.countProject;
     $(".opt-limits").checked = settings.showLimits;
+    renderDiag();
   });
   $(".close").addEventListener("click", () => {
     panel.hidden = true;
@@ -603,6 +802,11 @@
   }
   $(".opt-limit").addEventListener("change", (event) => changeSettings({ limit: Number(event.target.value) || 200_000 }));
   $(".opt-extra").addEventListener("input", (event) => changeSettings({ extra: Math.max(0, Number(event.target.value) || 0) }));
+  $(".opt-project").addEventListener("change", (event) => {
+    changeSettings({ countProject: event.target.checked });
+    const id = chatIdOf(location.pathname);
+    if (id) fetchConversation(id);
+  });
   $(".opt-limits").addEventListener("change", (event) => {
     changeSettings({ showLimits: event.target.checked });
     refreshLimits({ force: true });
@@ -672,25 +876,32 @@
   refreshLimits({ force: true });
 
   let isDirty = false;
+  let lastMutation = 0;
   let lastPath = location.pathname;
-  let lastSent = userMessageCount();
   new MutationObserver(() => {
     isDirty = true;
+    changedSinceFetch = true;
+    lastMutation = Date.now();
   }).observe(document.body, { subtree: true, childList: true, characterData: true });
 
   setInterval(() => {
     attach();
+    const id = chatIdOf(location.pathname);
+    const now = Date.now();
     if (location.pathname !== lastPath) {
       lastPath = location.pathname;
       isDirty = true;
+    }
+    if (id && !convo.busy) {
+      const isNewChat = convo.id !== id;
+      // 返事を書き終えて画面が落ち着いたら読みなおす。読めなかったときは間をあける
+      const isSettled = changedSinceFetch && now - lastMutation > 2500 && now - convo.at > (convo.error ? 30_000 : 8000);
+      if (isNewChat || isSettled) fetchConversation(id);
     }
     if (isDirty) {
       isDirty = false;
       updateChat();
       clampIntoView();
-      const sent = userMessageCount();
-      if (sent > lastSent) refreshLimits();
-      lastSent = sent;
     }
   }, 1500);
   setInterval(() => bar.classList.toggle("dark", isDarkPage()), 3000);
